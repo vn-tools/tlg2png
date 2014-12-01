@@ -1,4 +1,4 @@
 Converts TLG images to PNG.
 
-TLG images are used by games based on Kirikiri engine and include games such as
-Fate/Stay Night.
+TLG images are used by games based on Kirikiri engine, which includes titles
+such as Fate/Stay Night.
