@@ -1,4 +1,3 @@
-#include <Magick++.h>
 #include <iostream>
 #include <stdexcept>
 #include <string>
@@ -11,8 +10,6 @@ void show_usage(std::string path_to_self)
 
 int main(int argc, char **argv)
 {
-	Magick::InitializeMagick(*argv);
-
 	if (argc != 3)
 	{
 		show_usage(argv[0]);
