@@ -2,6 +2,7 @@
 require_relative 'lib/tlg_converter.rb'
 require 'ostruct'
 require 'optparse'
+require 'fileutils'
 
 # CLI frontend for TLG unpacker
 class CLI
@@ -10,6 +11,7 @@ class CLI
   end
 
   def run
+    FileUtils.mkpath(File.dirname(@options.output_path))
     TlgConverter.read(@options.input_path).save(@options.output_path)
   end
 
