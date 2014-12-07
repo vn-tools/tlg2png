@@ -1,5 +1,6 @@
 require_relative 'tlg_reader'
 
+# A TLG reader that handles TLG version 6.
 class Tlg6Reader < TlgReader
   MAGIC = "\x54\x4c\x47\x36\x2e\x30\x00\x72\x61\x77\x1a"
 

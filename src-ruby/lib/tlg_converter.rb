@@ -4,11 +4,14 @@ require_relative 'tlg6_reader'
 require 'rubygems'
 require 'RMagick'
 
+# TLG to PNG converter.
 class TlgConverter
+  # Reads the TLG and returns instance to itself.
   def self.read(input_path)
     new(input_path)
   end
 
+  # Saves the image as PNG (or any other image, based on file extension).
   def save(output_path)
     img = Magick::Image.new(@reader.width, @reader.height)
 

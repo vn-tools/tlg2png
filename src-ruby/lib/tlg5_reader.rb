@@ -2,6 +2,7 @@ require_relative 'image'
 require_relative 'tlg_reader'
 require 'stringio'
 
+# A TLG reader that handles TLG version 5.
 class Tlg5Reader < TlgReader
   MAGIC = "\x54\x4c\x47\x35\x2e\x30\x00\x72\x61\x77\x1a"
 
@@ -146,9 +147,15 @@ class Tlg5Reader < TlgReader
     block_info.block_data = output_data
   end
 
+  # A block information.
   class Tlg5BlockInfo
+    # Is decompressed?
     attr_reader :mark
+
+    # The size of :block_data.
     attr_reader :block_size
+
+    # It holds enough data to read up to :block_size pixel rows for one channel.
     attr_accessor :block_data
 
     def initialize(file)
@@ -158,6 +165,7 @@ class Tlg5Reader < TlgReader
     end
   end
 
+  # A header of TLG5 file.
   class Tlg5Header
     attr_reader :channel_count
     attr_reader :image_width
@@ -172,8 +180,12 @@ class Tlg5Reader < TlgReader
     end
   end
 
+  # Holds TLG5 compression state.
   class Tlg5CompressorState
+    # dictionary used by the modified LZW compression algorithm
     attr_reader :text
+
+    # offset within the dictionary
     attr_accessor :offset
 
     def initialize

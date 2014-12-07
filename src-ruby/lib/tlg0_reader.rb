@@ -4,6 +4,10 @@ require_relative 'tlg6_reader'
 require 'rubygems'
 require 'RMagick'
 
+# A TLG reader that handles TLG "version" 0.
+#
+# TLG0 is just a wrapper for TLG5/TLG6 that puts additional data at the end of
+# the file. Currently, the only data it supports are tags.
 class Tlg0Reader < TlgReader
   MAGIC = "\x54\x4c\x47\x30\x2e\x30\x00\x73\x64\x73\x1a"
 
