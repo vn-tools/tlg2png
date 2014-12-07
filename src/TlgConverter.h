@@ -1,5 +1,6 @@
 #ifndef TLG_CONVERTER_H_
 #define TLG_CONVERTER_H_
+#include <string>
 #include "Image.h"
 
 class TlgConverter

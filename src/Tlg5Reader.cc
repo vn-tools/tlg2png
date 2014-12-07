@@ -210,7 +210,7 @@ const std::string Tlg5Reader::get_magic() const
 	return std::string("\x54\x4c\x47\x35\x2e\x30\x00\x72\x61\x77\x1a", 11);
 }
 
-const Image Tlg5Reader::read_from_stream(std::ifstream &ifs) const
+const Image Tlg5Reader::read_raw_data(std::ifstream &ifs) const
 {
 	Tlg5Header header;
 	header.read(ifs);

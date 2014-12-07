@@ -7,8 +7,8 @@ class Tlg6Reader : public AbstractTlgReader
 	public:
 		virtual const std::string get_magic() const;
 
-	protected:
-		virtual const Image read_from_stream(std::ifstream &stream) const;
+	private:
+		virtual const Image read_raw_data(std::ifstream &stream) const;
 };
 
 #endif

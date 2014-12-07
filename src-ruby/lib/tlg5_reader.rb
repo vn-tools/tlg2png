@@ -1,31 +1,26 @@
+require_relative 'image'
+require_relative 'tlg_reader'
 require 'stringio'
 
-class Tlg5Reader
+class Tlg5Reader < TlgReader
   MAGIC = "\x54\x4c\x47\x35\x2e\x30\x00\x72\x61\x77\x1a"
 
-  attr_accessor :width
-  attr_accessor :height
-  attr_accessor :pixels
+  def read_stream(file)
+    assert_magic(file)
+    @header = Tlg5Header.new(file)
+    unless [3, 4].include?(@header.channel_count)
+      fail 'Unsupported channel count: '  + @header.channel_count.to_s
+    end
+    skip_block_information(file)
 
-  def self.read(input_path)
-    self.new(input_path)
+    image = Image.new
+    image.width = @header.image_width
+    image.height = @header.image_height
+    image.pixels = read_pixels(file)
+    image
   end
 
   private
-
-  def initialize(input_path)
-    open(input_path, 'rb') do |file|
-      assert_magic(file)
-      @header = Tlg5Header.new(file)
-      unless [3, 4].include?(@header.channel_count)
-        fail 'Unsupported channel count: '  + @header.channel_count.to_s
-      end
-      skip_block_information(file)
-      @width = @header.image_width
-      @height = @header.image_height
-      @pixels = read_pixels(file)
-    end
-  end
 
   def assert_magic(file)
     fail 'Not a TLG5 file ' if file.read(11) != MAGIC
@@ -51,7 +46,7 @@ class Tlg5Reader
     max_y = @header.image_height if max_y > @header.image_height
     use_alpha = @header.channel_count == 4
 
-    (block_y..max_y-1).each do |y|
+    (block_y..(max_y - 1)).each do |y|
       prev_red = 0
       prev_green = 0
       prev_blue = 0
@@ -129,7 +124,7 @@ class Tlg5Reader
           i += 1
         end
         j = 0
-        while j < length do
+        while j < length
           c = @compressor_state.text[position]
           output_data << c
           @compressor_state.text[@compressor_state.offset] = c

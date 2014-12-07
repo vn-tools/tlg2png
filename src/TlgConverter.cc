@@ -1,22 +1,31 @@
 #include <png.h>
 #include <fstream>
+#include <memory>
 #include <stdexcept>
 #include "BadMagicException.h"
 #include "TlgConverter.h"
+#include "AbstractTlgReader.h"
+#include "Tlg0Reader.h"
 #include "Tlg5Reader.h"
 #include "Tlg6Reader.h"
 
 const Image TlgConverter::read(std::string path) const
 {
-	Tlg5Reader tlg5reader;
-	Tlg6Reader tlg6reader;
+	std::ifstream ifs(path, std::ifstream::in | std::ifstream::binary);
+	if (!ifs)
+		throw std::runtime_error("Can\'t open " + path + " for reading");
+
 	try
 	{
-		return tlg5reader.read(path);
+		auto reader = AbstractTlgReader::choose_reader(ifs);
+		auto ret = reader->read(path);
+		ifs.close();
+		return ret;
 	}
-	catch (BadMagicException const &e)
+	catch (std::exception const &e)
 	{
-		return tlg6reader.read(path);
+		ifs.close();
+		throw;
 	}
 }
 

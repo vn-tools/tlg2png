@@ -1,8 +1,8 @@
-#ifndef TLG5_READER_H_
-#define TLG5_READER_H_
+#ifndef TLG0_READER_H_
+#define TLG0_READER_H_
 #include "AbstractTlgReader.h"
 
-class Tlg5Reader : public AbstractTlgReader
+class Tlg0Reader : public AbstractTlgReader
 {
 	public:
 		virtual const std::string get_magic() const;
