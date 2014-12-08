@@ -35,7 +35,7 @@ class Tlg5Reader < TlgReader
   end
 
   def read_pixels(file)
-    @compressor_state = LzssCompressorState.new
+    @compression_state = LzssCompressionState.new
     pixels = []
     (0..@header.image_height - 1).step(@header.block_height) do |block_y|
       channel_data = read_channel_data(file)
@@ -107,7 +107,7 @@ class Tlg5Reader < TlgReader
 
   def decompress_block(block_info)
     block_info.block_data = LzssCompressor.decompress(
-      @compressor_state,
+      @compression_state,
       block_info.block_data,
       block_info.block_size)
   end

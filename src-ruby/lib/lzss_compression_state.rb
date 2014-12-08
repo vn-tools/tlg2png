@@ -1,5 +1,5 @@
 # Holds TLG compression state.
-class LzssCompressorState
+class LzssCompressionState
   # dictionary used by the modified LZW compression algorithm
   attr_reader :text
 
