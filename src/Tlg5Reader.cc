@@ -8,23 +8,6 @@
 
 namespace
 {
-	struct Tlg5BlockInfo
-	{
-		uint8_t mark;
-		uint32_t block_size;
-		std::unique_ptr<uint8_t> block_data = nullptr;
-
-		void read(std::ifstream &ifs);
-	};
-
-	void Tlg5BlockInfo::read(std::ifstream &ifs)
-	{
-		ifs.read((char*) &mark, 1);
-		ifs.read((char*) &block_size, 4);
-		block_data = std::unique_ptr<uint8_t>(new uint8_t[block_size]);
-		ifs.read((char*) block_data.get(), block_size);
-	}
-
 	struct Tlg5Header
 	{
 		uint8_t channel_count;
@@ -43,20 +26,39 @@ namespace
 		ifs.read((char*) &block_height, 4);
 	}
 
-	void decompress(
+	struct Tlg5BlockInfo
+	{
+		uint8_t mark;
+		uint32_t block_size;
+		std::unique_ptr<uint8_t> block_data = nullptr;
+
+		void read(std::ifstream &ifs);
+		void decompress(
+			const Tlg5Header &header,
+			LzssCompressionState &compression_state);
+	};
+
+	void Tlg5BlockInfo::read(std::ifstream &ifs)
+	{
+		ifs.read((char*) &mark, 1);
+		ifs.read((char*) &block_size, 4);
+		block_data = std::unique_ptr<uint8_t>(new uint8_t[block_size]);
+		ifs.read((char*) block_data.get(), block_size);
+	}
+
+	void Tlg5BlockInfo::decompress(
 		const Tlg5Header &header,
-		LzssCompressionState &compression_state,
-		Tlg5BlockInfo &block_info)
+		LzssCompressionState &compression_state)
 	{
 		auto new_data = new uint8_t[header.image_width * header.block_height];
 
 		LzssCompressor::decompress(
 			compression_state,
-			block_info.block_data.get(),
-			block_info.block_size,
+			block_data.get(),
+			block_size,
 			new_data);
 
-		block_info.block_data = std::unique_ptr<uint8_t>(new_data);
+		block_data = std::unique_ptr<uint8_t>(new_data);
 	}
 
 	std::map<int, Tlg5BlockInfo> read_channel_data(
@@ -71,7 +73,7 @@ namespace
 			block_info.read(ifs);
 			if (!block_info.mark)
 			{
-				decompress(header, compression_state, block_info);
+				block_info.decompress(header, compression_state);
 			}
 			map[channel] = std::move(block_info);
 		}

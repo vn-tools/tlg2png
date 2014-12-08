@@ -16,28 +16,14 @@ class Tlg6Reader < TlgReader
 
     x_block_count = ((@header.image_width - 1) / TLG6_W_BLOCK_SIZE) + 1;
     y_block_count = ((@header.image_height - 1) / TLG6_H_BLOCK_SIZE) + 1;
-    filter_types = read_filter_types(file)
+
+    @filter_types = Tlg6FilterTypes.new(file)
+    @filter_types.decompress(@header)
 
     fail 'Not implemented! Please send sample files to @rr- on github.'
   end
 
   private
-
-  def read_filter_types(file)
-    compression_state = LzssCompressionState.new
-
-    z = 0
-    (0..31).each do |i|
-      (0..15).each do |j|
-        (0..3).each { compression_state.text[z += 1] = i }
-        (0..3).each { compression_state.text[z += 1] = j }
-      end
-    end
-
-    data_size = file.read(4).unpack('<L')[0]
-    data = file.read(data_size).unpack('C*')
-    LzssCompressor.decompress(compression_state, data, data_size)
-  end
 
   # A header of TLG6 file.
   class Tlg6Header
@@ -57,6 +43,31 @@ class Tlg6Reader < TlgReader
       @image_width = file.read(4).unpack('<L')[0]
       @image_height = file.read(4).unpack('<L')[0]
       @max_bit_length = file.read(4).unpack('<L')[0]
+    end
+  end
+
+  # Filter internally used by TLG6.
+  class Tlg6FilterTypes
+    attr_reader :data_size
+    attr_reader :data
+
+    def initialize(file)
+      @data_size = file.read(4).unpack('<L')[0]
+      @data = file.read(data_size).unpack('C*')
+    end
+
+    def decompress(file)
+      compression_state = LzssCompressionState.new
+
+      z = 0
+      (0..31).each do |i|
+        (0..15).each do |j|
+          (0..3).each { compression_state.text[z += 1] = i }
+          (0..3).each { compression_state.text[z += 1] = j }
+        end
+      end
+
+      @data = LzssCompressor.decompress(compression_state, @data, @data_size)
     end
   end
 

@@ -99,17 +99,10 @@ class Tlg5Reader < TlgReader
     channel_data = {}
     (0..@header.channel_count - 1).each do |channel|
       block_info = Tlg5BlockInfo.new(file)
-      decompress_block(block_info) unless block_info.mark
+      block_info.decompress(@compression_state) unless block_info.mark
       channel_data[channel] = block_info.block_data
     end
     channel_data
-  end
-
-  def decompress_block(block_info)
-    block_info.block_data = LzssCompressor.decompress(
-      @compression_state,
-      block_info.block_data,
-      block_info.block_size)
   end
 
   # A block information.
@@ -127,6 +120,13 @@ class Tlg5Reader < TlgReader
       @mark = file.read(1).unpack('C')[0] > 0
       @block_size = file.read(4).unpack('<L')[0]
       @block_data = file.read(@block_size).unpack('C*')
+    end
+
+    def decompress(compression_state)
+      @block_data = LzssCompressor.decompress(
+        compression_state,
+        @block_data,
+        @block_size)
     end
   end
 
