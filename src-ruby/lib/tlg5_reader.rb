@@ -1,5 +1,7 @@
 require_relative 'image'
 require_relative 'tlg_reader'
+require_relative 'lzss_compressor'
+require_relative 'lzss_compression_state'
 require 'stringio'
 
 # A TLG reader that handles TLG version 5.
@@ -33,7 +35,7 @@ class Tlg5Reader < TlgReader
   end
 
   def read_pixels(file)
-    @compressor_state = Tlg5CompressorState.new
+    @compressor_state = LzssCompressorState.new
     pixels = []
     (0..@header.image_height - 1).step(@header.block_height) do |block_y|
       channel_data = read_channel_data(file)
@@ -104,47 +106,10 @@ class Tlg5Reader < TlgReader
   end
 
   def decompress_block(block_info)
-    input_data = block_info.block_data
-    output_data = []
-    flags = 0
-    i = 0
-    while i < block_info.block_size
-      flags >>= 1
-      if (flags & 0x100) != 0x100
-        flags = input_data[i] | 0xff00
-        i += 1
-      end
-
-      if (flags & 1) == 1
-        x0, x1 = input_data[i], input_data[i + 1]
-        i += 2
-        position = x0 | ((x1 & 0xf) << 8)
-        length = 3 + ((x1 & 0xf0) >> 4)
-        if length == 18
-          length += input_data[i]
-          i += 1
-        end
-        j = 0
-        while j < length
-          c = @compressor_state.text[position]
-          output_data << c
-          @compressor_state.text[@compressor_state.offset] = c
-          @compressor_state.offset += 1
-          @compressor_state.offset &= 0xfff
-          position += 1
-          position &= 0xfff
-          j += 1
-        end
-      else
-        c = input_data[i]
-        i += 1
-        output_data << c
-        @compressor_state.text[@compressor_state.offset] = c
-        @compressor_state.offset += 1
-        @compressor_state.offset &= 0xfff
-      end
-    end
-    block_info.block_data = output_data
+    block_info.block_data = LzssCompressor.decompress(
+      @compressor_state,
+      block_info.block_data,
+      block_info.block_size)
   end
 
   # A block information.
@@ -177,20 +142,6 @@ class Tlg5Reader < TlgReader
       @image_width = file.read(4).unpack('<L')[0]
       @image_height = file.read(4).unpack('<L')[0]
       @block_height = file.read(4).unpack('<L')[0]
-    end
-  end
-
-  # Holds TLG5 compression state.
-  class Tlg5CompressorState
-    # dictionary used by the modified LZW compression algorithm
-    attr_reader :text
-
-    # offset within the dictionary
-    attr_accessor :offset
-
-    def initialize
-      @text = Array(0..4095).fill(0)
-      @offset = 0
     end
   end
 end
