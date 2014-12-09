@@ -109,8 +109,8 @@ namespace
 
 		[](uint8_t &r, uint8_t &g, uint8_t &b)
 			{
-				g += (b<<1);
-				r += (b<<1);
+				g += (b << 1);
+				r += (b << 1);
 			},
 	};
 
@@ -271,7 +271,7 @@ namespace
 		}
 	}
 
-	void TLG6DecodeGolombValues(uint8_t *pixel_buf, int pixel_count, uint8_t *bit_pool, int channel)
+	void decode_golomb_values(uint8_t *pixel_buf, int pixel_count, uint8_t *bit_pool, int channel)
 	{
 		int n = golomb_n_count - 1;
 		int a = 0;
@@ -319,8 +319,6 @@ namespace
 					pixel_buf += 4;
 				}
 				while (-- count);
-
-				zero ^= 1;
 			}
 			else
 			{
@@ -376,9 +374,9 @@ namespace
 					}
 				}
 				while (-- count);
-
-				zero ^= 1;
 			}
+
+			zero ^= 1;
 		}
 	}
 
@@ -468,8 +466,6 @@ namespace
 				in -= odd_skip * ww;
 		}
 	}
-
-	/* ! */
 }
 
 const std::string Tlg6Reader::get_magic() const
@@ -503,7 +499,6 @@ const Image Tlg6Reader::read_raw_data(std::ifstream &ifs) const
 	for (uint32_t i = 0; i < header.image_width; i ++)
 		zeroline[i] = 0;
 
-	/* ! */
 	init_table();
 	uint32_t main_count = header.image_width / w_block_size;
 	int fraction = header.image_width - main_count * w_block_size;
@@ -531,7 +526,7 @@ const Image Tlg6Reader::read_raw_data(std::ifstream &ifs) const
 
 			if (method == 0)
 			{
-				TLG6DecodeGolombValues((uint8_t*)pixel_buf + c, pixel_count, bit_pool, c);
+				decode_golomb_values((uint8_t*)pixel_buf + c, pixel_count, bit_pool, c);
 			}
 			else
 			{
@@ -546,7 +541,7 @@ const Image Tlg6Reader::read_raw_data(std::ifstream &ifs) const
 		{
 			uint32_t *current_line = &image.pixels[yy * image.width];
 
-			int dir = (yy&1)^1;
+			int dir = (yy & 1) ^ 1;
 			int odd_skip = ((ylim - yy -1) - (yy - y));
 
 			if (main_count)
@@ -597,8 +592,6 @@ const Image Tlg6Reader::read_raw_data(std::ifstream &ifs) const
 			prev_line = current_line;
 		}
 	}
-
-	/* ! */
 
 	return image;
 }
