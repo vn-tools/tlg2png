@@ -1,5 +1,4 @@
-#include <cstring> //!
-#include <iostream> //!
+#include <array>
 #include <memory>
 #include <stdexcept>
 #include "LzssCompressionState.h"
@@ -16,6 +15,104 @@ namespace
 
 	uint8_t leading_zero_table[leading_zero_table_size];
 	uint8_t golomb_bit_length_table[golomb_n_count * 2 * 128][golomb_n_count];
+
+	std::array<void (*)(uint8_t &, uint8_t &, uint8_t &), 16> transformers
+	{
+		[](uint8_t &r, uint8_t &g, uint8_t &b)
+			{
+			},
+
+		[](uint8_t &r, uint8_t &g, uint8_t &b)
+			{
+				r += g;
+				b += g;
+			},
+
+		[](uint8_t &r, uint8_t &g, uint8_t &b)
+			{
+				g += b;
+				r += g;
+			},
+
+		[](uint8_t &r, uint8_t &g, uint8_t &b)
+			{
+				g += r;
+				b += g;
+			},
+
+		[](uint8_t &r, uint8_t &g, uint8_t &b)
+			{
+				b += r;
+				g += b;
+				r += g;
+			},
+
+		[](uint8_t &r, uint8_t &g, uint8_t &b)
+			{
+				b += r;
+				g += b;
+			},
+
+		[](uint8_t &r, uint8_t &g, uint8_t &b)
+			{
+				b += g;
+			},
+
+		[](uint8_t &r, uint8_t &g, uint8_t &b)
+			{
+				g += b;
+			},
+
+		[](uint8_t &r, uint8_t &g, uint8_t &b)
+			{
+				r += g;
+			},
+
+		[](uint8_t &r, uint8_t &g, uint8_t &b)
+			{
+				r += b;
+				g += r;
+				b += g;
+			},
+
+		[](uint8_t &r, uint8_t &g, uint8_t &b)
+			{
+				b += r;
+				g += r;
+			},
+
+		[](uint8_t &r, uint8_t &g, uint8_t &b)
+			{
+				r += b;
+				g += b;
+			},
+
+		[](uint8_t &r, uint8_t &g, uint8_t &b)
+			{
+				r += b;
+				g += r;
+			},
+
+		[](uint8_t &r, uint8_t &g, uint8_t &b)
+			{
+				b += g;
+				r += b;
+				g += r;
+			},
+
+		[](uint8_t &r, uint8_t &g, uint8_t &b)
+			{
+				g += r;
+				b += g;
+				r += b;
+			},
+
+		[](uint8_t &r, uint8_t &g, uint8_t &b)
+			{
+				g += (b<<1);
+				r += (b<<1);
+			},
+	};
 
 	struct Tlg6Header
 	{
@@ -134,46 +231,6 @@ namespace
 			+ (((a ^ b) & 0xfefefefe) >> 1)
 			+ ((a ^ b) & 0x01010101), v);
 	}
-
-	/* !! */
-
-	#define DO_CHROMA_DECODE_PROTO(B, G, R, A) \
-		do \
-		{ \
-			uint32_t u = *prev_line; \
-			p = med(p, u, up, \
-				(0xff0000 & ((B) << 16)) + (0xff00 & ((G) << 8)) + (0xff & (R)) + ((A) << 24)); \
-			up = u; \
-			*current_line = p; \
-			current_line ++; \
-			prev_line ++; \
-			in += step; \
-		} \
-		while (-- w);
-
-	#define DO_CHROMA_DECODE_PROTO2(B, G, R, A) \
-		do \
-		{ \
-			uint32_t u = *prev_line; \
-			p = avg(p, u, up, \
-				(0xff0000 & ((B) << 16)) + (0xff00 & ((G) << 8)) + (0xff & (R)) + ((A) << 24)); \
-			up = u; \
-			*current_line = p; \
-			current_line ++; \
-			prev_line ++; \
-			in += step; \
-		} \
-		while (-- w);
-
-	#define DO_CHROMA_DECODE(N, R, G, B) \
-		case (N<<1): \
-			DO_CHROMA_DECODE_PROTO(R, G, B, IA) \
-			break; \
-		case (N<<1)+1: \
-			DO_CHROMA_DECODE_PROTO2(R, G, B, IA) \
-			break;
-
-	/* /!! */
 
 	void init_table()
 	{
@@ -369,43 +426,46 @@ namespace
 			if (i & 1)
 				in += odd_skip * ww;
 
-			switch (filtertypes[i])
+			uint32_t (*filter)(
+				uint32_t const &,
+				uint32_t const &,
+				uint32_t const &,
+				uint32_t const &)
+				= filtertypes[i] & 1 ? &avg : &med;
+
+			void (*transformer)(uint8_t &, uint8_t &, uint8_t &)
+				= transformers[filtertypes[i] >> 1];
+
+			do
 			{
-				#define IA (uint8_t)((*in>>24)&0xff)
-				#define IR (uint8_t)((*in>>16)&0xff)
-				#define IG (uint8_t)((*in>>8)&0xff)
-				#define IB (uint8_t)((*in)&0xff)
-				DO_CHROMA_DECODE( 0, IB, IG, IR);
-				DO_CHROMA_DECODE( 1, IB+IG, IG, IR+IG);
-				DO_CHROMA_DECODE( 2, IB, IG+IB, IR+IB+IG);
-				DO_CHROMA_DECODE( 3, IB+IR+IG, IG+IR, IR);
-				DO_CHROMA_DECODE( 4, IB+IR, IG+IB+IR, IR+IB+IR+IG);
-				DO_CHROMA_DECODE( 5, IB+IR, IG+IB+IR, IR);
-				DO_CHROMA_DECODE( 6, IB+IG, IG, IR);
-				DO_CHROMA_DECODE( 7, IB, IG+IB, IR);
-				DO_CHROMA_DECODE( 8, IB, IG, IR+IG);
-				DO_CHROMA_DECODE( 9, IB+IG+IR+IB, IG+IR+IB, IR+IB);
-				DO_CHROMA_DECODE(10, IB+IR, IG+IR, IR);
-				DO_CHROMA_DECODE(11, IB, IG+IB, IR+IB);
-				DO_CHROMA_DECODE(12, IB, IG+IR+IB, IR+IB);
-				DO_CHROMA_DECODE(13, IB+IG, IG+IR+IB+IG, IR+IB+IG);
-				DO_CHROMA_DECODE(14, IB+IG+IR, IG+IR, IR+IB+IG+IR);
-				DO_CHROMA_DECODE(15, IB, IG+(IB<<1), IR+(IB<<1));
+				uint8_t a = (*in >> 24) & 0xff;
+				uint8_t r = (*in >> 16) & 0xff;
+				uint8_t g = (*in >> 8) & 0xff;
+				uint8_t b = (*in) & 0xff;
 
-				default: return;
+				transformer(r, g, b);
+
+				uint32_t u = *prev_line;
+				p = filter(
+					p,
+					u,
+					up,
+					(0xff0000 & (b << 16))
+					+ (0xff00 & (g << 8))
+					+ (0xff & r) + (a << 24));
+
+				up = u;
+				*current_line = p;
+
+				current_line ++;
+				prev_line ++;
+				in += step;
 			}
+			while (-- w);
 
-			if (step == 1)
-				in += skip_block_bytes - ww;
-			else
-				in += skip_block_bytes + 1;
-
-			if (i&1)
+			in += skip_block_bytes + (step == 1 ? - ww : 1);
+			if (i & 1)
 				in -= odd_skip * ww;
-
-			#undef IR
-			#undef IG
-			#undef IB
 		}
 	}
 
