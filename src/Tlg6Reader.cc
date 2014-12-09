@@ -1,15 +1,22 @@
 #include <cstring> //!
+#include <iostream> //!
 #include <memory>
 #include <stdexcept>
 #include "LzssCompressionState.h"
 #include "LzssCompressor.h"
 #include "Tlg6Reader.h"
 
-#define TLG6_W_BLOCK_SIZE 8
-#define TLG6_H_BLOCK_SIZE 8
-
 namespace
 {
+	const int w_block_size = 8;
+	const int h_block_size = 8;
+	const int golomb_n_count = 4;
+	const int leading_zero_table_bits = 12;
+	const int leading_zero_table_size = 1 << leading_zero_table_bits;
+
+	uint8_t leading_zero_table[leading_zero_table_size];
+	uint8_t golomb_bit_length_table[golomb_n_count * 2 * 128][golomb_n_count];
+
 	struct Tlg6Header
 	{
 		uint8_t channel_count;
@@ -35,8 +42,8 @@ namespace
 		ifs.read((char*) &image_height, 4);
 		ifs.read((char*) &max_bit_length, 4);
 
-		x_block_count = ((image_width - 1)/ TLG6_W_BLOCK_SIZE) + 1;
-		y_block_count = ((image_height - 1)/ TLG6_H_BLOCK_SIZE) + 1;
+		x_block_count = ((image_width - 1)/ w_block_size) + 1;
+		y_block_count = ((image_height - 1)/ h_block_size) + 1;
 	}
 
 	struct Tlg6FilterTypes
@@ -83,23 +90,29 @@ namespace
 		data = std::unique_ptr<uint8_t>(output);
 	}
 
-	/* !!!!! */
-
-	uint32_t make_gt_mask(uint32_t a, uint32_t b)
+	inline uint32_t make_gt_mask(
+		uint32_t const &a,
+		uint32_t const &b)
 	{
 		uint32_t tmp2 = ~b;
-		uint32_t tmp = ((a & tmp2) + (((a ^ tmp2) >> 1) & 0x7f7f7f7f)) & 0x80808080;
-		tmp = ((tmp >> 7) + 0x7f7f7f7f) ^ 0x7f7f7f7f;
-		return tmp;
+		uint32_t tmp =
+			((a & tmp2) + (((a ^ tmp2) >> 1) & 0x7f7f7f7f)) & 0x80808080;
+
+		return ((tmp >> 7) + 0x7f7f7f7f) ^ 0x7f7f7f7f;
 	}
 
-	uint32_t packed_bytes_add(uint32_t a, uint32_t b)
+	inline uint32_t packed_bytes_add(
+		uint32_t const &a,
+		uint32_t const &b)
 	{
-		uint32_t tmp = (((a & b) << 1) + ((a ^ b) & 0xfefefefe)) & 0x01010100;
-		return a + b - tmp;
+		return a + b - ((((a & b) << 1) + ((a ^ b) & 0xfefefefe)) & 0x01010100);
 	}
 
-	uint32_t med2(uint32_t a, uint32_t b, uint32_t c)
+	inline uint32_t med(
+		uint32_t const &a,
+		uint32_t const &b,
+		uint32_t const &c,
+		uint32_t const &v)
 	{
 		uint32_t aa_gt_bb = make_gt_mask(a, b);
 		uint32_t a_xor_b_and_aa_gt_bb = ((a ^ b) & aa_gt_bb);
@@ -108,100 +121,94 @@ namespace
 		uint32_t n = make_gt_mask(c, bb);
 		uint32_t nn = make_gt_mask(aa, c);
 		uint32_t m = ~(n | nn);
-		return (n & aa) | (nn & bb) | ((bb & m) - (c & m) + (aa & m));
+		return packed_bytes_add((n & aa) | (nn & bb) | ((bb & m) - (c & m) + (aa & m)), v);
 	}
 
-	uint32_t med(uint32_t a, uint32_t b, uint32_t c, uint32_t v)
+	inline uint32_t avg(
+		uint32_t const &a,
+		uint32_t const &b,
+		uint32_t const &c,
+		uint32_t const &v)
 	{
-		return packed_bytes_add(med2(a, b, c), v);
+		return packed_bytes_add((a & b)
+			+ (((a ^ b) & 0xfefefefe) >> 1)
+			+ ((a ^ b) & 0x01010101), v);
 	}
 
-	#define TLG6_AVG_PACKED(x, y) ((((x) & (y)) + ((((x) ^ (y)) & 0xfefefefe) >> 1)) + (((x)^(y))&0x01010101))
+	/* !! */
 
-	uint32_t avg(uint32_t a, uint32_t b, uint32_t c, uint32_t v)
-	{
-		return packed_bytes_add(TLG6_AVG_PACKED(a, b), v);
-	}
+	#define DO_CHROMA_DECODE_PROTO(B, G, R, A) \
+		do \
+		{ \
+			uint32_t u = *prev_line; \
+			p = med(p, u, up, \
+				(0xff0000 & ((B) << 16)) + (0xff00 & ((G) << 8)) + (0xff & (R)) + ((A) << 24)); \
+			up = u; \
+			*current_line = p; \
+			current_line ++; \
+			prev_line ++; \
+			in += step; \
+		} \
+		while (-- w);
 
-	#define TLG6_GOLOMB_HALF_THRESHOLD 8
-	#define TLG6_GOLOMB_N_COUNT 4
-	#define TLG6_LeadingZeroTable_BITS 12
-	#define TLG6_LeadingZeroTable_SIZE (1<<TLG6_LeadingZeroTable_BITS)
-	#define TLG6_FETCH_32BITS(addr) (*(uint32_t*)addr)
+	#define DO_CHROMA_DECODE_PROTO2(B, G, R, A) \
+		do \
+		{ \
+			uint32_t u = *prev_line; \
+			p = avg(p, u, up, \
+				(0xff0000 & ((B) << 16)) + (0xff00 & ((G) << 8)) + (0xff & (R)) + ((A) << 24)); \
+			up = u; \
+			*current_line = p; \
+			current_line ++; \
+			prev_line ++; \
+			in += step; \
+		} \
+		while (-- w);
 
-	#define TLG6_DO_CHROMA_DECODE_PROTO(B, G, R, A) do \
-				{ \
-					uint32_t u = *prev_line; \
-					p = med(p, u, up, \
-						(0xff0000 & ((B) << 16)) + (0xff00 & ((G) << 8)) + (0xff & (R)) + ((A) << 24)); \
-					up = u; \
-					*current_line = p; \
-					current_line ++; \
-					prev_line ++; \
-					in += step; \
-				} \
-				while (-- w);
-	#define TLG6_DO_CHROMA_DECODE_PROTO2(B, G, R, A) do \
-				{ \
-					uint32_t u = *prev_line; \
-					p = avg(p, u, up, \
-						(0xff0000 & ((B) << 16)) + (0xff00 & ((G) << 8)) + (0xff & (R)) + ((A) << 24)); \
-					up = u; \
-					*current_line = p; \
-					current_line ++; \
-					prev_line ++; \
-					in += step; \
-				} \
-				while (-- w);
-
-	#define TLG6_DO_CHROMA_DECODE(N, R, G, B) case (N<<1): \
-		TLG6_DO_CHROMA_DECODE_PROTO(R, G, B, IA) break; \
+	#define DO_CHROMA_DECODE(N, R, G, B) \
+		case (N<<1): \
+			DO_CHROMA_DECODE_PROTO(R, G, B, IA) \
+			break; \
 		case (N<<1)+1: \
-		TLG6_DO_CHROMA_DECODE_PROTO2(R, G, B, IA) break;
+			DO_CHROMA_DECODE_PROTO2(R, G, B, IA) \
+			break;
 
-	/* /!!!!! */
+	/* /!! */
 
-	uint8_t TLG6LeadingZeroTable[TLG6_LeadingZeroTable_SIZE];
-
-	char TLG6GolombBitLengthTable
-		[TLG6_GOLOMB_N_COUNT * 2 * 128][TLG6_GOLOMB_N_COUNT] =
-		{ { 0 } };
-
-	short TLG6GolombCompressed[TLG6_GOLOMB_N_COUNT][9] =
+	void init_table()
 	{
-		{3, 7, 15, 27, 63, 108, 223, 448, 130, },
-		{3, 5, 13, 24, 51, 95, 192, 384, 257, },
-		{2, 5, 12, 21, 39, 86, 155, 320, 384, },
-		{2, 3, 9, 18, 33, 61, 129, 258, 511, },
-	};
+		short golomb_compression_table[golomb_n_count][9] =
+		{
+			{3, 7, 15, 27, 63, 108, 223, 448, 130, },
+			{3, 5, 13, 24, 51, 95, 192, 384, 257, },
+			{2, 5, 12, 21, 39, 86, 155, 320, 384, },
+			{2, 3, 9, 18, 33, 61, 129, 258, 511, },
+		};
 
-	void InitTLG6Table()
-	{
-		for (int i = 0; i < TLG6_LeadingZeroTable_SIZE; i ++)
+		for (int i = 0; i < leading_zero_table_size; i ++)
 		{
 			int cnt = 0;
 			int j;
 
-			for (j = 1; j != TLG6_LeadingZeroTable_SIZE && !(i & j);
+			for (j = 1; j != leading_zero_table_size && !(i & j);
 				j <<= 1, cnt ++);
 
 			cnt ++;
 
-			if (j == TLG6_LeadingZeroTable_SIZE)
+			if (j == leading_zero_table_size)
 				cnt = 0;
 
-			TLG6LeadingZeroTable[i] = cnt;
+			leading_zero_table[i] = cnt;
 		}
 
-		std::memset(TLG6GolombBitLengthTable, 0, TLG6_GOLOMB_N_COUNT * 2 * 128 * TLG6_GOLOMB_N_COUNT);
-		for (int n = 0; n < TLG6_GOLOMB_N_COUNT; n ++)
+		for (int n = 0; n < golomb_n_count; n ++)
 		{
 			int a = 0;
 			for (int i = 0; i < 9; i ++)
 			{
-				for (int j = 0; j < TLG6GolombCompressed[n][i]; j ++)
+				for (int j = 0; j < golomb_compression_table[n][i]; j ++)
 				{
-					TLG6GolombBitLengthTable[a ++][n] = i;
+					golomb_bit_length_table[a ++][n] = i;
 				}
 			}
 		}
@@ -209,7 +216,7 @@ namespace
 
 	void TLG6DecodeGolombValues(uint8_t *pixel_buf, int pixel_count, uint8_t *bit_pool, int channel)
 	{
-		int n = TLG6_GOLOMB_N_COUNT - 1;
+		int n = golomb_n_count - 1;
 		int a = 0;
 
 		int bit_pos = 1;
@@ -220,17 +227,17 @@ namespace
 		{
 			int count;
 			{
-				uint32_t t = TLG6_FETCH_32BITS(bit_pool) >> bit_pos;
-				int b = TLG6LeadingZeroTable[t&(TLG6_LeadingZeroTable_SIZE - 1)];
+				uint32_t t = *(uint32_t*)(bit_pool) >> bit_pos;
+				int b = leading_zero_table[t & (leading_zero_table_size - 1)];
 				int bit_count = b;
 				while (!b)
 				{
-					bit_count += TLG6_LeadingZeroTable_BITS;
-					bit_pos += TLG6_LeadingZeroTable_BITS;
+					bit_count += leading_zero_table_bits;
+					bit_pos += leading_zero_table_bits;
 					bit_pool += bit_pos >> 3;
 					bit_pos &= 7;
-					t = TLG6_FETCH_32BITS(bit_pool) >> bit_pos;
-					b = TLG6LeadingZeroTable[t&(TLG6_LeadingZeroTable_SIZE - 1)];
+					t = *(uint32_t*)(bit_pool) >> bit_pos;
+					b = leading_zero_table[t & (leading_zero_table_size - 1)];
 					bit_count += b;
 				}
 
@@ -240,7 +247,7 @@ namespace
 
 				bit_count --;
 				count = 1 << bit_count;
-				count += ((TLG6_FETCH_32BITS(bit_pool) >> (bit_pos)) & (count - 1));
+				count += ((*(uint32_t*)(bit_pool) >> (bit_pos)) & (count - 1));
 
 				bit_pos += bit_count;
 				bit_pool += bit_pos >> 3;
@@ -262,23 +269,22 @@ namespace
 			{
 				do
 				{
-					int k = TLG6GolombBitLengthTable[a][n], v, sign;
-
-					uint32_t t = TLG6_FETCH_32BITS(bit_pool) >> bit_pos;
 					int bit_count;
 					int b;
+
+					uint32_t t = *(uint32_t*)(bit_pool) >> bit_pos;
 					if (t)
 					{
-						b = TLG6LeadingZeroTable[t&(TLG6_LeadingZeroTable_SIZE - 1)];
+						b = leading_zero_table[t & (leading_zero_table_size - 1)];
 						bit_count = b;
 						while (!b)
 						{
-							bit_count += TLG6_LeadingZeroTable_BITS;
-							bit_pos += TLG6_LeadingZeroTable_BITS;
+							bit_count += leading_zero_table_bits;
+							bit_pos += leading_zero_table_bits;
 							bit_pool += bit_pos >> 3;
 							bit_pos &= 7;
-							t = TLG6_FETCH_32BITS(bit_pool) >> bit_pos;
-							b = TLG6LeadingZeroTable[t&(TLG6_LeadingZeroTable_SIZE - 1)];
+							t = *(uint32_t*)(bit_pool) >> bit_pos;
+							b = leading_zero_table[t & (leading_zero_table_size - 1)];
 							bit_count += b;
 						}
 						bit_count --;
@@ -288,20 +294,17 @@ namespace
 						bit_pool += 5;
 						bit_count = bit_pool[-1];
 						bit_pos = 0;
-						t = TLG6_FETCH_32BITS(bit_pool);
+						t = *(uint32_t*)(bit_pool);
 						b = 0;
 					}
 
-					v = (bit_count << k) + ((t >> b) & ((1 << k) - 1));
-					sign = (v & 1) - 1;
+					int k = golomb_bit_length_table[a][n];
+					int v = (bit_count << k) + ((t >> b) & ((1 << k) - 1));
+					int sign = (v & 1) - 1;
 					v >>= 1;
 					a += v;
 
-					if (channel == 0)
-						*(uint32_t*)pixel_buf = ((v ^ sign) + sign + 1);
-					else
-						*(int8_t*)pixel_buf = ((v ^ sign) + sign + 1);
-
+					*(uint8_t*)pixel_buf = ((v ^ sign) + sign + 1);
 					pixel_buf += 4;
 
 					bit_pos += b;
@@ -312,7 +315,7 @@ namespace
 					if (-- n < 0)
 					{
 						a >>= 1;
-						n = TLG6_GOLOMB_N_COUNT - 1;
+						n = golomb_n_count - 1;
 					}
 				}
 				while (-- count);
@@ -340,8 +343,8 @@ namespace
 
 		if (start_block)
 		{
-			prev_line += start_block * TLG6_W_BLOCK_SIZE;
-			current_line += start_block * TLG6_W_BLOCK_SIZE;
+			prev_line += start_block * w_block_size;
+			current_line += start_block * w_block_size;
 			p = current_line[-1];
 			up = prev_line[-1];
 		}
@@ -355,9 +358,9 @@ namespace
 
 		for (i = start_block; i < block_limit; i ++)
 		{
-			int w = width - i * TLG6_W_BLOCK_SIZE;
-			if (w > TLG6_W_BLOCK_SIZE)
-				w = TLG6_W_BLOCK_SIZE;
+			int w = width - i * w_block_size;
+			if (w > w_block_size)
+				w = w_block_size;
 
 			int ww = w;
 			if (step == -1)
@@ -368,26 +371,26 @@ namespace
 
 			switch (filtertypes[i])
 			{
-				#define IA (char)((*in>>24)&0xff)
-				#define IR (char)((*in>>16)&0xff)
-				#define IG (char)((*in>>8)&0xff)
-				#define IB (char)((*in)&0xff)
-				TLG6_DO_CHROMA_DECODE( 0, IB, IG, IR);
-				TLG6_DO_CHROMA_DECODE( 1, IB+IG, IG, IR+IG);
-				TLG6_DO_CHROMA_DECODE( 2, IB, IG+IB, IR+IB+IG);
-				TLG6_DO_CHROMA_DECODE( 3, IB+IR+IG, IG+IR, IR);
-				TLG6_DO_CHROMA_DECODE( 4, IB+IR, IG+IB+IR, IR+IB+IR+IG);
-				TLG6_DO_CHROMA_DECODE( 5, IB+IR, IG+IB+IR, IR);
-				TLG6_DO_CHROMA_DECODE( 6, IB+IG, IG, IR);
-				TLG6_DO_CHROMA_DECODE( 7, IB, IG+IB, IR);
-				TLG6_DO_CHROMA_DECODE( 8, IB, IG, IR+IG);
-				TLG6_DO_CHROMA_DECODE( 9, IB+IG+IR+IB, IG+IR+IB, IR+IB);
-				TLG6_DO_CHROMA_DECODE(10, IB+IR, IG+IR, IR);
-				TLG6_DO_CHROMA_DECODE(11, IB, IG+IB, IR+IB);
-				TLG6_DO_CHROMA_DECODE(12, IB, IG+IR+IB, IR+IB);
-				TLG6_DO_CHROMA_DECODE(13, IB+IG, IG+IR+IB+IG, IR+IB+IG);
-				TLG6_DO_CHROMA_DECODE(14, IB+IG+IR, IG+IR, IR+IB+IG+IR);
-				TLG6_DO_CHROMA_DECODE(15, IB, IG+(IB<<1), IR+(IB<<1));
+				#define IA (uint8_t)((*in>>24)&0xff)
+				#define IR (uint8_t)((*in>>16)&0xff)
+				#define IG (uint8_t)((*in>>8)&0xff)
+				#define IB (uint8_t)((*in)&0xff)
+				DO_CHROMA_DECODE( 0, IB, IG, IR);
+				DO_CHROMA_DECODE( 1, IB+IG, IG, IR+IG);
+				DO_CHROMA_DECODE( 2, IB, IG+IB, IR+IB+IG);
+				DO_CHROMA_DECODE( 3, IB+IR+IG, IG+IR, IR);
+				DO_CHROMA_DECODE( 4, IB+IR, IG+IB+IR, IR+IB+IR+IG);
+				DO_CHROMA_DECODE( 5, IB+IR, IG+IB+IR, IR);
+				DO_CHROMA_DECODE( 6, IB+IG, IG, IR);
+				DO_CHROMA_DECODE( 7, IB, IG+IB, IR);
+				DO_CHROMA_DECODE( 8, IB, IG, IR+IG);
+				DO_CHROMA_DECODE( 9, IB+IG+IR+IB, IG+IR+IB, IR+IB);
+				DO_CHROMA_DECODE(10, IB+IR, IG+IR, IR);
+				DO_CHROMA_DECODE(11, IB, IG+IB, IR+IB);
+				DO_CHROMA_DECODE(12, IB, IG+IR+IB, IR+IB);
+				DO_CHROMA_DECODE(13, IB+IG, IG+IR+IB+IG, IR+IB+IG);
+				DO_CHROMA_DECODE(14, IB+IG+IR, IG+IR, IR+IB+IG+IR);
+				DO_CHROMA_DECODE(15, IB, IG+(IB<<1), IR+(IB<<1));
 
 				default: return;
 			}
@@ -434,20 +437,19 @@ const Image Tlg6Reader::read_raw_data(std::ifstream &ifs) const
 	image.height = header.image_height;
 	image.pixels = new uint32_t[image.width * image.height];
 
-	uint32_t *pixel_buf = new uint32_t[4 * header.image_width * TLG6_H_BLOCK_SIZE];
+	uint32_t *pixel_buf = new uint32_t[4 * header.image_width * h_block_size];
 	uint32_t *zeroline = new uint32_t[header.image_width];
 	uint32_t *prev_line = zeroline;
 	for (uint32_t i = 0; i < header.image_width; i ++)
 		zeroline[i] = 0;
 
 	/* ! */
-
-	InitTLG6Table();
-	uint32_t main_count = header.image_width / TLG6_W_BLOCK_SIZE;
-	int fraction = header.image_width - main_count * TLG6_W_BLOCK_SIZE;
-	for (uint32_t y = 0; y < header.image_height; y += TLG6_H_BLOCK_SIZE)
+	init_table();
+	uint32_t main_count = header.image_width / w_block_size;
+	int fraction = header.image_width - main_count * w_block_size;
+	for (uint32_t y = 0; y < header.image_height; y += h_block_size)
 	{
-		uint32_t ylim = y + TLG6_H_BLOCK_SIZE;
+		uint32_t ylim = y + h_block_size;
 		if (ylim >= header.image_height)
 			ylim = header.image_height;
 
@@ -477,8 +479,8 @@ const Image Tlg6Reader::read_raw_data(std::ifstream &ifs) const
 			}
 		}
 
-		uint8_t *ft = filter_types.data.get() + (y / TLG6_H_BLOCK_SIZE) * header.x_block_count;
-		int skip_bytes = (ylim - y) * TLG6_W_BLOCK_SIZE;
+		uint8_t *ft = filter_types.data.get() + (y / h_block_size) * header.x_block_count;
+		int skip_bytes = (ylim - y) * w_block_size;
 
 		for (uint32_t yy = y; yy < ylim; yy ++)
 		{
@@ -489,9 +491,9 @@ const Image Tlg6Reader::read_raw_data(std::ifstream &ifs) const
 
 			if (main_count)
 			{
-				int start = ((header.image_width < TLG6_W_BLOCK_SIZE)
+				int start = ((header.image_width < w_block_size)
 					? header.image_width
-					: TLG6_W_BLOCK_SIZE) * (yy - y);
+					: w_block_size) * (yy - y);
 
 				decode_line(
 					prev_line,
@@ -512,8 +514,8 @@ const Image Tlg6Reader::read_raw_data(std::ifstream &ifs) const
 			if (main_count != header.x_block_count)
 			{
 				int ww = fraction;
-				if (ww > TLG6_W_BLOCK_SIZE)
-					ww = TLG6_W_BLOCK_SIZE;
+				if (ww > w_block_size)
+					ww = w_block_size;
 
 				int start = ww * (yy - y);
 				decode_line(
