@@ -391,7 +391,8 @@ namespace
 		uint32_t *in,
 		uint32_t initialp,
 		int odd_skip,
-		int dir)
+		int dir,
+		int channel_count)
 	{
 		uint32_t p, up;
 		int step, i;
@@ -451,6 +452,9 @@ namespace
 					(0xff0000 & (b << 16))
 					+ (0xff00 & (g << 8))
 					+ (0xff & r) + (a << 24));
+
+				if (channel_count == 3)
+					p |= 0xff000000;
 
 				up = u;
 				*current_line = p;
@@ -563,7 +567,8 @@ const Image Tlg6Reader::read_raw_data(std::ifstream &ifs) const
 						? 0xff000000
 						: 0,
 					odd_skip,
-					dir);
+					dir,
+					header.channel_count);
 			}
 
 			if (main_count != header.x_block_count)
@@ -586,7 +591,8 @@ const Image Tlg6Reader::read_raw_data(std::ifstream &ifs) const
 						? 0xff000000
 						: 0,
 					odd_skip,
-					dir);
+					dir,
+					header.channel_count);
 			}
 
 			prev_line = current_line;
