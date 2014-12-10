@@ -5,7 +5,7 @@ EXECUTABLE := tlg2png
 
 SOURCES := $(wildcard $(SRCDIR)*.cc)
 OBJECTS := $(SOURCES:$(SRCDIR)%.cc=$(OBJDIR)%.o)
-CXXFLAGS := -Wall -pedantic -std=c++11 -g
+CXXFLAGS := -Wall -pedantic -std=c++11
 LFLAGS := -lpng
 
 all: $(EXECUTABLE)
