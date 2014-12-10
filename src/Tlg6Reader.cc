@@ -245,10 +245,13 @@ namespace
 		for (int i = 0; i < leading_zero_table_size; i ++)
 		{
 			int cnt = 0;
-			int j;
+			int j = 1;
 
-			for (j = 1; j != leading_zero_table_size && !(i & j);
-				j <<= 1, cnt ++);
+			while (j != leading_zero_table_size && !(i & j))
+			{
+				j <<= 1;
+				cnt ++;
+			}
 
 			cnt ++;
 
@@ -271,7 +274,7 @@ namespace
 		}
 	}
 
-	void decode_golomb_values(uint8_t *pixel_buf, int pixel_count, uint8_t *bit_pool, int channel)
+	void decode_golomb_values(uint8_t *pixel_buf, int pixel_count, uint8_t *bit_pool)
 	{
 		int n = golomb_n_count - 1;
 		int a = 0;
@@ -304,7 +307,8 @@ namespace
 
 				bit_count --;
 				count = 1 << bit_count;
-				count += ((*(uint32_t*)(bit_pool) >> (bit_pos)) & (count - 1));
+				t = *(uint32_t*)(bit_pool);
+				count += ((t >> bit_pos) & (count - 1));
 
 				bit_pos += bit_count;
 				bit_pool += bit_pos >> 3;
@@ -386,7 +390,7 @@ namespace
 		int width,
 		int start_block,
 		int block_limit,
-		uint8_t *filtertypes,
+		uint8_t *filter_types,
 		int skip_block_bytes,
 		uint32_t *in,
 		uint32_t initialp,
@@ -430,10 +434,10 @@ namespace
 				uint32_t const &,
 				uint32_t const &,
 				uint32_t const &)
-				= filtertypes[i] & 1 ? &avg : &med;
+				= filter_types[i] & 1 ? &avg : &med;
 
 			void (*transformer)(uint8_t &, uint8_t &, uint8_t &)
-				= transformers[filtertypes[i] >> 1];
+				= transformers[filter_types[i] >> 1];
 
 			do
 			{
@@ -498,10 +502,10 @@ const Image Tlg6Reader::read_raw_data(std::ifstream &ifs) const
 	image.pixels = new uint32_t[image.width * image.height];
 
 	uint32_t *pixel_buf = new uint32_t[4 * header.image_width * h_block_size];
-	uint32_t *zeroline = new uint32_t[header.image_width];
-	uint32_t *prev_line = zeroline;
+	uint32_t *zero_line = new uint32_t[header.image_width];
+	uint32_t *prev_line = zero_line;
 	for (uint32_t i = 0; i < header.image_width; i ++)
-		zeroline[i] = 0;
+		zero_line[i] = 0;
 
 	init_table();
 	uint32_t main_count = header.image_width / w_block_size;
@@ -530,7 +534,7 @@ const Image Tlg6Reader::read_raw_data(std::ifstream &ifs) const
 
 			if (method == 0)
 			{
-				decode_golomb_values((uint8_t*)pixel_buf + c, pixel_count, bit_pool, c);
+				decode_golomb_values((uint8_t*)pixel_buf + c, pixel_count, bit_pool);
 			}
 			else
 			{
