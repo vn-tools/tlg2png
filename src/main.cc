@@ -5,7 +5,7 @@
 
 void show_usage(std::string path_to_self)
 {
-	std::cerr << "Usage " << path_to_self << " INPUT OUTPUT" << std::endl;
+	std::cerr << "Usage: " << path_to_self << " INPUT OUTPUT" << std::endl;
 }
 
 int main(int argc, char **argv)

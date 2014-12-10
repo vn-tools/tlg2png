@@ -19,7 +19,7 @@ std::unique_ptr<const AbstractTlgReader>
 		new Tlg6Reader(),
 	};
 
-	off_t pos = ifs.tellg();
+	auto pos = ifs.tellg();
 	for (auto reader : readers)
 	{
 		try
